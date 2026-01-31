@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>你的專屬選課模擬器</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --bg-color: #f4f7f9;
+            --card-bg: #ffffff;
+            --border-color: #ddd;
+            --occupied-color: #e0e0e0;
+            --fixed-course-color: #ffecd1; /* 必修課顏色 */
+            --pe-course-color: #d1f7c4; /* 體育課顏色 */
+            --ge-course-color: #d1e8ff; /* 通識課顏色 */
+        }
+
+        body {
+            font-family: "Segoe UI", "Microsoft JhengHei", sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: #333;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+        }
+
+        h1 { text-align: center; grid-column: 1 / -1; color: #2c3e50; }
+        
+        /* 選課區塊樣式 */
+        .selection-panel {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            max-height: 800px;
+            overflow-y: auto;
+        }
+
+        .course-group h3 {
+            border-bottom: 2px solid var(--primary-color);
+            padding-bottom: 5px;
+            margin-top: 20px;
+        }
+
+        .course-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .course-item:hover { background-color: #f9f9f9; }
+        .course-item.selected { border-color: var(--primary-color); background-color: #eaf4ff; }
+        .course-item.disabled { opacity: 0.5; cursor: not-allowed; background-color: #eee; }
+
+        .course-info { margin-left: 10px; flex: 1; }
+        .course-time { font-size: 0.85em; color: #666; }
+        .course-name { font-weight: bold; }
+
+        /* 課表樣式 */
+        .schedule-panel {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        th, td {
+            border: 1px solid var(--border-color);
+            padding: 8px;
+            text-align: center;
+            vertical-align: middle;
+            height: 50px;
+            font-size: 0.9em;
+        }
+
+        th { background-color: var(--primary-color); color: white; }
+        .time-col { width: 80px; background-color: #f8f9fa; font-weight: bold; }
+
+        /* 課程格子顏色 */
+        .cell-fixed { background-color: var(--fixed-course-color); border-left: 4px solid #ffa500; }
+        .cell-pe { background-color: var(--pe-course-color); border-left: 4px solid #28a745; }
+        .cell-ge { background-color: var(--ge-course-color); border-left: 4px solid #007bff; }
+
+        .conflict-alert {
+            color: red;
+            font-weight: bold;
+            margin-top: 10px;
+            min-height: 20px;
+        }
+        
+        button#reset-btn {
+            width: 100%;
+            padding: 10px;
+            margin-top: 20px;
+            background-color: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button#reset-btn:hover { background-color: #c0392b; }
+
+        @media (max-width: 768px) {
+            .container { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <h1>📅 2026 模擬選課系統</h1>
+
+    <div class="container">
+        <!-- 左側：選課清單 -->
+        <div class="selection-panel">
+            <div id="conflict-msg" class="conflict-alert"></div>
+            
+            <div class="course-group">
+                <h3>🏸 1. 體育課 (必修 1.0)</h3>
+                <div id="pe-courses"></div>
+            </div>
+
+            <div class="course-group">
+                <h3>🎓 2. 通識課 (選修 2.0)</h3>
+                <div id="ge-courses"></div>
+            </div>
+            
+            <button id="reset-btn" onclick="resetSelection()">重置所有選擇</button>
+        </div>
+
+        <!-- 右側：課表 -->
+        <div class="schedule-panel">
+            <table id="schedule-table">
+                <thead>
+                    <tr>
+                        <th class="time-col">節次</th>
+                        <th>週一</th>
+                        <th>週二</th>
+                        <th>週三</th>
+                        <th>週四</th>
+                        <th>週五</th>
+                    </tr>
+                </thead>
+                <tbody id="schedule-body">
+                    <!-- Javascript 將自動生成這裡 -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // 基礎資料設定
+        const times = [
+            { id: 1, name: "01-02", label: "08:10-10:00" },
+            { id: 2, name: "03-04", label: "10:10-12:00" },
+            { id: 3, name: "中午", label: "12:00-13:30" }, // 雖然沒課，但留著做分隔
+            { id: 4, name: "06-07", label: "13:30-15:20" },
+            { id: 5, name: "08-09", label: "15:30-17:20" }
+        ];
+
+        // 既定必修課 (格式: day 1-5, slot 1=01-02, 2=03-04, 4=06-07, 5=08-09)
+        const fixedCourses = [
+            { day: 1, slot: 2, name: "聲韻學", code: "CH331" },
+            { day: 1, slot: 4, name: "修辭學", code: "CH332" },
+            { day: 2, slot: 2, name: "應用文", code: "CH337" },
+            { day: 3, slot: 1, name: "教材教法", code: "CH306" },
+            { day: 3, slot: 5, name: "詞選及習作", code: "CH339" },
+            { day: 4, slot: 2, name: "學庸", code: "CH333" },
+            { day: 4, slot: 4, name: "教學實習", code: "CH302" },
+            { day: 4, slot: 5, name: "班級管理", code: "CH303" }
+        ];
+
+        // 體育課選項
+        const peOptions = [
+            { id: "GR208", name: "排球組 (張智惠)", day: 2, slot: 4 },
+            { id: "GR209", name: "桌球組 (黃美珍)", day: 2, slot: 4 },
+            { id: "GR210", name: "極限飛輪 (林怡如)", day: 2, slot: 5 },
+            { id: "GR211", name: "體適能 (謝勻蓁)", day: 2, slot: 5 },
+            { id: "GR212", name: "桌球組 (黃美珍)", day: 3, slot: 2 },
+            { id: "GR221", name: "排球組 (郭美芬)", day: 5, slot: 1 },
+            { id: "GR222", name: "體適能 (謝海喬)", day: 5, slot: 1 },
+            { id: "GR223", name: "排球組 (郭美芬)", day: 5, slot: 2 },
+            { id: "GR224", name: "網球組 (吳益勝)", day: 5, slot: 5 },
+            { id: "GR225", name: "羽球組 (洪國欽)", day: 5, slot: 5 },
+            { id: "GR226", name: "飛盤 (蔡晉瑋)", day: 5, slot: 5 },
+            { id: "GR227", name: "瑜珈 (張金郎)", day: 5, slot: 5 },
+            { id: "GR228", name: "體適能 (林子翔)", day: 5, slot: 5 },
+            { id: "GR229", name: "重量訓練 (胡家蓁)", day: 5, slot: 5 }
+        ];
+
+        // 通識課選項
+        const geOptions = [
+            { id: "GR801", name: "社會學動動腦", day: 2, slot: 4 },
+            { id: "GR802", name: "飲食心理", day: 2, slot: 4 },
+            { id: "GR803", name: "全球變遷與永續發展", day: 2, slot: 4 },
+            { id: "GR808", name: "跨文化溝通-生活日語", day: 2, slot: 4 },
+            { id: "GR809", name: "手機攝影", day: 2, slot: 4 },
+            { id: "GR812", name: "縫紉與手作", day: 2, slot: 4 },
+            { id: "GR813", name: "木工實作", day: 2, slot: 4 },
+            { id: "GR816", name: "陶藝實作", day: 2, slot: 4 },
+            { id: "GR815", name: "料理與科學", day: 2, slot: 5 },
+            { id: "GR817", name: "陶藝實作", day: 2, slot: 5 },
+            { id: "GR818", name: "高捷與輕軌文創", day: 2, slot: 5 },
+            { id: "GR811", name: "縫紉與手作", day: 3, slot: 2 },
+            { id: "GR834", name: "電影藝術賞析", day: 5, slot: 2 },
+            { id: "GR839", name: "烏克麗麗", day: 5, slot: 2 },
+            { id: "GR841", name: "園藝治療", day: 5, slot: 2 },
+            { id: "GR828", name: "生活韓語", day: 5, slot: 2 },
+            { id: "GR844", name: "多元媒材工藝", day: 5, slot: 2 },
+            { id: "GR845", name: "縫紉與手作 (3學分)", day: 5, slot: 2, note: "跨到第5節" } // 簡化顯示
+        ];
+
+        let selectedCourses = []; // 儲存用戶選擇的課程 ID
+
+        function init() {
+            renderSchedule();
+            renderSelectionList();
+        }
+
+        // 渲染課表
+        function renderSchedule() {
+            const tbody = document.getElementById("schedule-body");
+            tbody.innerHTML = "";
+
+            times.forEach(time => {
+                const tr = document.createElement("tr");
+                
+                // 時間欄位
+                const tdTime = document.createElement("td");
+                tdTime.className = "time-col";
+                tdTime.innerHTML = `<strong>${time.name}</strong><br><span style='font-size:0.7em'>${time.label}</span>`;
+                tr.appendChild(tdTime);
+
+                // 週一到週五
+                for (let day = 1; day <= 5; day++) {
+                    const td = document.createElement("td");
+                    
+                    // 1. 檢查必修課
+                    const fixed = fixedCourses.find(c => c.day === day && c.slot === time.id);
+                    if (fixed) {
+                        td.innerHTML = `<strong>${fixed.name}</strong><br>${fixed.code}`;
+                        td.className = "cell-fixed";
+                    }
+
+                    // 2. 檢查用戶選的體育課
+                    const userPe = peOptions.find(c => selectedCourses.includes(c.id) && c.day === day && c.slot === time.id);
+                    if (userPe) {
+                        td.innerHTML = `<strong>${userPe.name}</strong><br>${userPe.id}`;
+                        td.className = "cell-pe";
+                    }
+
+                    // 3. 檢查用戶選的通識課
+                    const userGe = geOptions.find(c => selectedCourses.includes(c.id) && c.day === day && c.slot === time.id);
+                    if (userGe) {
+                        td.innerHTML = `<strong>${userGe.name}</strong><br>${userGe.id}`;
+                        td.className = "cell-ge";
+                    }
+                    
+                    // 特別處理：中午時段
+                    if(time.id === 3) {
+                        td.style.backgroundColor = "#eee";
+                        td.innerHTML = "-";
+                    }
+
+                    tr.appendChild(td);
+                }
+                tbody.appendChild(tr);
+            });
+        }
+
+        // 渲染選課清單
+        function renderSelectionList() {
+            const peContainer = document.getElementById("pe-courses");
+            const geContainer = document.getElementById("ge-courses");
+            
+            peContainer.innerHTML = createCourseListHTML(peOptions, "pe");
+            geContainer.innerHTML = createCourseListHTML(geOptions, "ge");
+
+            updateCourseStatus();
+        }
+
+        function createCourseListHTML(courses, type) {
+            return courses.map(course => {
+                const timeStr = `週${["","一","二","三","四","五"][course.day]} ${times.find(t=>t.id===course.slot).name}`;
+                return `
+                    <div class="course-item" id="course-${course.id}" onclick="toggleCourse('${course.id}', '${type}', ${course.day}, ${course.slot})">
+                        <input type="checkbox" ${selectedCourses.includes(course.id) ? "checked" : ""}>
+                        <div class="course-info">
+                            <div class="course-name">${course.id} ${course.name}</div>
+                            <div class="course-time">${timeStr}</div>
+                        </div>
+                    </div>
+                `;
+            }).join("");
+        }
+
+        // 切換課程選擇狀態
+        function toggleCourse(courseId, type, day, slot) {
+            const msg = document.getElementById("conflict-msg");
+            msg.innerText = "";
+
+            // 如果已經選了，取消選擇
+            if (selectedCourses.includes(courseId)) {
+                selectedCourses = selectedCourses.filter(id => id !== courseId);
+            } else {
+                // 檢查衝堂
+                // 1. 檢查是否與必修衝突 (雖然資料已經排除，但為了邏輯完整性)
+                const isFixedConflict = fixedCourses.some(c => c.day === day && c.slot === slot);
+                if (isFixedConflict) {
+                    msg.innerText = "❌ 此時段已有必修課，無法加選！";
+                    return;
+                }
+
+                // 2. 檢查是否與已選的其他課程衝突
+                const allOptions = [...peOptions, ...geOptions];
+                const conflictId = selectedCourses.find(id => {
+                    const c = allOptions.find(opt => opt.id === id);
+                    return c.day === day && c.slot === slot;
+                });
+
+                if (conflictId) {
+                    msg.innerText = `❌ 時間衝突！請先退選同時代的課程 (${conflictId})`;
+                    return;
+                }
+                
+                // 限制：體育只能選一門，通識只能選一門 (依你的需求模擬)
+                // 這裡先不做硬性限制，讓你自由排，但你可以自行決定要不要多選
+                
+                selectedCourses.push(courseId);
+            }
+
+            renderSchedule();
+            updateCourseStatus();
+        }
+
+        // 更新清單樣式（已選高亮、衝突變灰）
+        function updateCourseStatus() {
+            const allOptions = [...peOptions, ...geOptions];
+            
+            allOptions.forEach(course => {
+                const el = document.getElementById(`course-${course.id}`);
+                if(!el) return;
+
+                const isSelected = selectedCourses.includes(course.id);
+                
+                // 檢查是否被其他已選課程擋住
+                const isBlocked = selectedCourses.some(id => {
+                    if (id === course.id) return false;
+                    const selectedC = allOptions.find(c => c.id === id);
+                    return selectedC.day === course.day && selectedC.slot === course.slot;
+                });
+
+                el.classList.remove("selected", "disabled");
+                if (isSelected) {
+                    el.classList.add("selected");
+                    el.querySelector("input").checked = true;
+                } else {
+                    el.querySelector("input").checked = false;
+                    if (isBlocked) {
+                        el.classList.add("disabled");
+                    }
+                }
+            });
+        }
+
+        function resetSelection() {
+            selectedCourses = [];
+            renderSchedule();
+            updateCourseStatus();
+            document.getElementById("conflict-msg").innerText = "";
+        }
+
+        // 啟動
+        init();
+    </script>
+</body>
+</html>
